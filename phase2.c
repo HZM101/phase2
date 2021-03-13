@@ -13,7 +13,6 @@
 #include <phase1.h>
 #include <phase2.h>
 #include <usloss.h>
-
 #include "message.h"
 
 /* ------------------------- Prototypes ----------------------------------- */
@@ -112,6 +111,10 @@ int MboxCreate(int slots, int slot_size)
 {
 } /* MboxCreate */
 
+int MboxRelease(int mailboxID)
+{
+
+} /* MboxRelease */
 
 /* ------------------------------------------------------------------------
    Name - MboxSend
@@ -138,3 +141,18 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
 int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 {
 } /* MboxReceive */
+
+int MboxCondSend(int mailboxID, void *message, int message_size)
+{
+
+} /* MboxCondSend */
+
+int MboxCondReceive(int mailboxID, void *message, int max_message_size)
+{
+
+} /* MboxCondReceive */
+
+int waitdevice(int type, int unit, int *status)
+{
+
+} /* waitdevice */
