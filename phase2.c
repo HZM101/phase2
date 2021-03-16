@@ -34,21 +34,32 @@ static void nullsys(sysargs *);
 
 
 
-
 /* -------------------------- Globals ------------------------------------- */
 
 int debugflag2 = 0;
 
 /* the mail boxes */
 mail_box MailBoxTable[MAXMBOX];
+mail_slot MailSlotTable[MAXSLOTS];
+mail_proc MBoxProcs[MAXPROC];
 
+/* Global Mail Box ID tracker */
+int global_mbox_id;
 
+/* Empty mailbox for setting the initialization. */
+mail_box empty_mbox = {0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,};
 
+/* Empty mail slot for setting the initialization. */
+mail_slot empty_slot = {0, NULL, NULL, NULL, NULL, NULL,};
 
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+/* Empty proc for setting the initialization. */
+mail_proc empty_proc = { NULL, NULL, NULL, NULL, NULL, NULL, NULL,};
 
+/* Variable for interrupt vector by USLOSS */
+void(*int_vec[NUM_INTS])(int dev, void * unit);
 
-
+/* Variable for system call vector by USLOSS */
+void(*sys_vec[MAXSYSCALLS])(sysargs * args);
 
 /* -------------------------- Functions ----------------------------------- */
 
@@ -74,15 +85,46 @@ int start1(char *arg)
     * Initialize int_vec and sys_vec, allocate mailboxes for interrupt
     * handlers.  Etc... */
 
+   /* Setting mail box structure */
+   global_mbox_id = 0;
 
+   /* Mail box table */
+   for(int i = 0; i < MAXMBOX; i++)
+   {
+      MailBoxTable[i] = empty_mbox;
+   }
 
+   /* Mail slot table */
+   for(int i = 0; i < MAXSLOTS)
+   {
+      MailSlotTable[i] = empty_slot;
+   }
 
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+   /* Proc */
+   for(int i = 0; i < MAXPROC)
+   {
+      MBoxProcs[i] = empty_proc;
+   }
 
+   /* I/O */
+   for(int i = 0; i < 7; i++)
+   {
+      MboxCreate(0, MAX_MESSAGE);
+   }
 
+   /* Setting interrupt handler */
+   int_vec[CLOCK_DEV] = clock_handler2;
+   int_vec[DISK_DEV] = disk_handler;
+   int_vec[TERM_DEV] = terminal_handler;
 
+   /* Setting sys_vec array */
+   int_vec[SYSCALL_INT] = syscall_handler;
 
-
+   /* Setting system call handler for nullsys */
+   for(int i = 0; i < MAXSYSCALLS; i++)
+   {
+      sys_vec[i] = nullsys;
+   }
 
    enableInterrupts();
 
@@ -113,7 +155,6 @@ int MboxCreate(int slots, int slot_size)
 
 int MboxRelease(int mailboxID)
 {
-
 } /* MboxRelease */
 
 /* ------------------------------------------------------------------------
@@ -127,7 +168,6 @@ int MboxRelease(int mailboxID)
 int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
 {
 } /* MboxSend */
-
 
 /* ------------------------------------------------------------------------
    Name - MboxReceive
