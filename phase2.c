@@ -3,6 +3,8 @@
 
    University of Arizona South
    Computer Science 452
+   
+   @authors: Erik Ibarra Hurtado, Hassan Martinez, Victor Alvarez
 
    ------------------------------------------------------------------------ */
 
@@ -18,21 +20,14 @@
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
-
-
 void disk_handler(int, void *);
 void clock_handler2(int, void *);
 void terminal_handler(int, void *);
 void syscall_handler(int, void *);
-void remove_mail_slot(int);
-void unbloxodus(int);
+void remove_mail_slots(int);
+void unblock_mail_ptr(int);
 static void nullsys(sysargs *);
 void insert_blocked_proc(int);
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-
-
 
 /* -------------------------- Globals ------------------------------------- */
 
@@ -45,15 +40,6 @@ mail_proc MBoxProcs[MAXPROC];
 
 /* Global Mail Box ID tracker */
 int global_mbox_id;
-
-/* Empty mailbox for setting the initialization. */
-mail_box empty_mbox = {0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,};
-
-/* Empty mail slot for setting the initialization. */
-mail_slot empty_slot = {0, NULL, NULL, NULL, NULL, NULL,};
-
-/* Empty proc for setting the initialization. */
-mail_proc empty_proc = { NULL, NULL, NULL, NULL, NULL, NULL, NULL,};
 
 /* Variable for interrupt vector by USLOSS */
 void(*int_vec[NUM_INTS])(int dev, void * unit);
@@ -210,10 +196,6 @@ int MboxCreate(int slots, int slot_size)
 
 } /* MboxCreate */
 
-int MboxRelease(int mailboxID)
-{
-
-} /* MboxRelease */
 
 /* ------------------------------------------------------------------------
    Name - MboxSend
@@ -336,7 +318,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
             MailBoxTable[i].proc_ptr->message_size = msg_size;
             memcpy(&MailBoxTable[i].proc_ptr->message, msg_ptr, msg_size);
          }
-         unbloxodus(i);
+         unblock_mail_ptr(i);
          return 0;
       }
       else /* Mailbox is a sender, block process on the mailbox. */
@@ -409,12 +391,13 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
    MailSlotTable[j].message_size = msg_size;
    insert_mail_slot(i, j);
    MailBoxTable[i].num_used_slots++;
-   unbloxodus(i);
+   unblock_mail_ptr(i);
 
    enableInterrupts();
    return 0;
 
 } /* MboxSend */
+
 
 /* ------------------------------------------------------------------------
    Name - MboxReceive
@@ -427,31 +410,371 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
    ----------------------------------------------------------------------- */
 int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 {
+   disableInterrupts();
+   check_kernel_mode();
+
+   int i = 0;
+   int message_size;
+
+   /* Checking mailboxtable for mbox_id*/
+   while (MailBoxTable[i].mbox_id != mbox_id)
+   {
+      i++;
+      /* Invalid args mbox_id not found*/
+      if (i == MAXMBOX)
+      {
+         return -1;
+      }
+   }
+
+   /* Check for mailbox messages at a nonzero-slot mailboxes. */
+   if (MailBoxTable[i].num_used_slots == 0 && MailBoxTable[i].num_slots > 0)
+   {
+
+      /* Initialize the mbox_proc values */
+      MboxProcs[getpid()%MAXPROC].pid = getpid();
+      MboxProcs[getpid()%MAXPROC].blocked = BLOCKED;
+      MboxProcs[getpid()%MAXPROC].blocked_how = MBOXEMPTY;
+      MailBoxTable[i].num_blocked_procs++;
+
+
+      insert_blocked_proc(i);
+      /* if process was zapped while blocked or status is RELEASED then return -3. */
+      if (block_me(MBOXEMPTY) == -1 || (MailBoxTable[i].status == RELEASED)
+      {
+         return -3;
+      }
+   }
+
+   /* Check a zero-slot mailbox table */
+   if (MailBoxTable[i].num_slots == 0)
+   {
+      if (MailBoxTable[i].proc_ptr == NULL)
+      {
+
+         /* Initialize the mbox_proc values */
+         MboxProcs[getpid()%MAXPROC].pid = getpid();
+         MboxProcs[getpid()%MAXPROC].blocked = BLOCKED;
+         MboxProcs[getpid()%MAXPROC].blocked_how = MBOXZERORECEIVING;
+         MboxProcs[getpid()%MAXPROC].message_size = msg_size;
+         MailBoxTable[i].num_blocked_procs++;
+         insert_blocked_proc(i);
+
+         /* If process was zapped at blocked state or status is RELEASED then return -3 */ 
+         if (block_me(MBOXZERORECEIVING) == -1 || MailBoxTable[i].status == RELEASED)
+         {
+            return -3;
+         }
+
+         /* Copy message to msg_ptr then return it. */
+         memcpy(msg_ptr, &MboxProcs[getpid()%MAXPROC].message, MboxProcs[getpid()%MAXPROC].message_size);
+         return MboxProcs[getpid()%MAXPROC].message_size;
+      }
+      
+      /* Not NULL process to sender blocked to check size. */
+      if (MailBoxTable[i].proc_ptr != NULL && MailBoxTable[i].proc_ptr->blocked_how == MBOXZEROSENDING)
+      {
+         /* Test size of the message if it is too big then return -1. */
+         if (MailBoxTable[i].proc_ptr->message_size > msg_size)
+         {
+            return -1;
+         }
+
+         /* Copy message to sender then return it. */
+         message_size = MailBoxTable[i].proc_ptr->message_size;
+         memcpy(msg_ptr, &MailBoxTable[i].proc_ptr->message, message_size);
+         unblock_mail_ptr(i);
+         return message_size;
+      }
+      else
+      {
+         /* Initialize the mbox_proc values */
+         MboxProcs[getpid()%MAXPROC].pid = getpid();
+         MboxProcs[getpid()%MAXPROC].blocked = BLOCKED;
+         MboxProcs[getpid()%MAXPROC].blocked_how = MBOXZERORECEIVING;
+         MboxProcs[getpid()%MAXPROC].message_size = msg_size;
+         MailBoxTable[i].num_blocked_procs++;
+         insert_blocked_proc(i);
+
+         /* if zapped while blocked or status is RELEASED then return -3. */ 
+         if (block_me(MBOXZERORECEIVING) == -1 || MailBoxTable[i].status == RELEASED)
+         {
+            return -3;
+         }
+      }
+
+      /* Copy message to msg_ptr then return it. */
+      memcpy(msg_ptr, &MboxProcs[getpid()%MAXPROC].message, MboxProcs[getpid()%MAXPROC].message_size);
+      return MboxProcs[getpid()%MAXPROC].message_size;
+   }
+
+   /* Testing for size of message if to big then return -1. */
+   if (MailBoxTable[i].slot_ptr->message_size > msg_size)
+   {
+      return -1;
+   }
+
+   message_size = MailBoxTable[i].slot_ptr->message_size;
+   memcpy(msg_ptr, &MailBoxTable[i].slot_ptr->message, message_size);
+   remove_mail_slots(i);
+   unblock_mail_ptr(i);
+   
+   return message_size;
+
 } /* MboxReceive */
 
-int MboxCondSend(int mailboxID, void *message, int message_size)
-{
 
+/* ------------------------------------------------------------------------
+   Name - MboxCondSend
+   Purpose - Put a message into a slot for the indicated mailbox.
+   Parameters - mailbox id, pointer to data of msg, # of bytes in msg.
+   Returns - -3 if process is zap'd
+             -2 if mailbox is full, message not sent, or no mailbox slots
+                available
+             -1 if illegal values given as arguments
+              0 if message sent successfully
+   Side Effects - none.
+   ----------------------------------------------------------------------- */
+int MboxCondSend(int mbox_id, void *message, int msg_size)
+{
+   disableInterrupts();
+   check_kernel_mode();
+   int i, j = 0;
+   
+   /* Checking validity of mbox_id. */
+   if(mbox_id < 0 || mbox_id >= MAXMBOX)
+   {
+      if(DEBUG2 && debugflag2)
+      {
+         console("MboxCondSend(): called with invalid mbox_id: %d. Return -1\n");
+      }
+      enableInterrupts();
+      return -1;
+   }
+
+   /* Cheking if their is no mailboxes are available to return -1. */
+   while (MailBoxTable[i].mbox_id != mbox_id)
+   {
+      i++;
+      if (i == MAXMBOX)
+      {
+         if (DEBUG2 && debugflag2)
+         {
+            console ("MboxCondSend(): mailbox not found in the mailbox table. Return -1\n");
+         }
+         return -1;
+      }
+   }
+
+   /* Testing for illegal values if so return -1. */
+   if (msg_size > MailBoxTable[i].max_slot_size || MailBoxTable[i].status == RELEASED)
+   {
+      return -1;
+   }
+
+   /* Checking any unused slots if so return -2.*/
+   if (MailBoxTable[i].num_used_slots >= MailBoxTable[i].num_slots && MailBoxTable[i].num_slots > 0)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("MboxCondSend(): There are no unused mailbox slots. Return -2\n");
+      }
+      return -2;
+   }
+
+   /* Check a zero-slot mailbox */
+   if (MailBoxTable[i].num_slots == 0)
+   {
+      /* Check NULL process under mailbox if so return -2. */
+      if (MailBoxTable[i].proc_ptr == NULL)
+      {
+         return -2;
+      }
+      
+      /* Check a Not NULL process under mailbox. */
+      if (MailBoxTable[i].proc_ptr != NULL)
+      {
+         
+         /* Check status & message. */
+         if (MailBoxTable[i].status == RELEASED || MailBoxTable[i].proc_ptr->message_size < msg_size)
+         {
+            return -1;
+         }
+         memcpy(&MailBoxTable[i].proc_ptr->message, message, msg_size);
+         unblock_mail_ptr(i);
+         return 0;
+      }
+      return 0;
+   }
+
+   /* Cheking availability under next free slot. */
+   while (MailSlotTable[j].is_free != 0)
+   {
+      j++;
+      /* Check if their is no slots available then return -2. */
+      if (j >= MAXSLOTS)
+      {
+         return -2;
+      }
+   }
+
+   if(MailBoxTable[i].status == RELEASED)
+   {
+      return -1;
+   }
+
+   /* Setting mail_slot struct. */
+   MailSlotTable[j].is_free = 1;
+   MailSlotTable[j].mbox_id = MailBoxTable[i].mbox_id;
+   memcpy(&MailSlotTable[j].message, message, msg_size);
+   MailSlotTable[j].message_size = msg_size;
+   insert_mail_slot(i, j);
+   MailBoxTable[i].num_used_slots++;
+   unblock_mail_ptr(i);
+
+   /* Test for zap. */
+   if(is_zapped() == 1)
+   {
+      return -3;
+   }
+
+   enableInterrupts();
+   return 0;
 } /* MboxCondSend */
 
+
+/* ------------------------------------------------------------------------
+   Name - MboxCondReceive
+   Purpose - Put a message into a slot for the indicated mailbox.
+   Parameters - mailbox id, pointer to data of msg, # of bytes in buffer.
+   Returns - -3 if process is zap'd
+             -2 if mailbox empty or no message to receive
+             -1 if illegal values
+              0 if successful
+----------------------------------------------------------------------- */
 int MboxCondReceive(int mailboxID, void *message, int max_message_size)
 {
+   disableInterrupts();
+   check_kernel_mode();
 
+   int i = 0;
+   int message_size;
+
+   /* Checking for the mailbox ID in the table. Also testing for illegal values. */
+   while(MailBoxTable[i].mbox_id != mailboxID)
+   {
+      i++;
+      if    (i == MAXMBOX 
+            || MailBoxTable[i].status == RELEASED 
+            || MailBoxTable[i].slot_ptr->message_size > max_message_size)
+      {
+         return -1;
+      }
+   }
+
+   /* Checking for any slots in the table. */
+   if(MailBoxTable[i].num_used_slots == 0)
+   {
+      if(DEBUG2 && debugflag2)
+      {
+         console("MboxCondReceive")
+      }
+      return -2;
+   }
+
+   /* Saving message size of mailbox table. */
+   message_size = MailBoxTable[i].slot_ptr->message_size
+
+   /* Check status again. */
+   if(MailBoxTable[i].status == RELEASED)
+   {
+      if(DEBUG2 && debugflag2)
+      {
+         console("MboxCondReceive(): mailbox was released. Return -1\n");
+      }
+      return -1;
+   }
+
+   /* Save message to receiver message buffer. */
+   memcpy(message, &MailBoxTable[i].slot_ptr->message, message_size);
+
+   /* Release mailbox slot & unblock sender. */
+   remove_mail_slots(i);
+   unblock_mail_ptr(i);
+
+   /* Test zap status if zap then return -3. */
+   if(is_zapped() == 1)
+   {
+      if(DEBUG2 && debugflag2)
+      {
+         console("MboxCondReceive(): message is zap. Return -3\n");
+      }
+      return -3;
+   }
+
+   return 0;
 } /* MboxCondReceive */
 
-int waitdevice(int type, int unit, int *status)
-{
 
-} /* waitdevice */
+/* ------------------------------------------------------------------------
+   Name - MboxRelease
+   Purpose - releases a previously created mailbox
+   Parameters - mailbox id.
+   Returns - -3 if process was zapped while releasing the mailbox
+             -1 the mailbox ID is not a mailbox that is in use
+              0 successful completion
+   ----------------------------------------------------------------------- */
+int MboxRelease(int mailboxID)
+{
+   int currBoxAmnt = currNumBoxes;
+   int receivedMboxID = mailboxID;
+   char* func_name = "MboxRelease()";
+   mail_box *currBox;
+
+   disableInterrupts();
+   checkCurrentMode(func_name);//make sure its in kernel mode
+
+   //check if caller was zapped
+   if(is_zapped()){
+      if(DEBUG2&&debugflag2)
+         console("%s: caller was already zapped", func_name);
+      return -3;
+   }
+
+   //check mailboxID validity
+   if(receivedMboxID < 0 || receivedMboxID >= MAXMBOX){
+      if(debugflag2 && DEBUG2){
+         console("\n\t%s: has invalid mailboxID: %d\n", func_name, receivedMboxID);
+         return -1;
+      }
+   }else{
+      currBox = &MailBoxTable[receivedMboxID];//if not invalid then retrieve the mailbox
+   }
+   
+   //check if currBox has not already been released or is active
+   if(currBox == NULL || currBox->status == INACTIVE){
+      if(DEBUG2 && debugflag2){
+         console("\n\t%s: mailboxID = %d was already free.\n", func_name, receivedMboxID);
+         return -1;
+      }
+   }
+
+   //remove mailbox slots
+   remove_mail_slots(receivedMboxID);
+   remove_mail_box(receivedMboxID);
+
+   enableInterrupts();
+   return 0;
+} /* MboxRelease */
 
 
 /* -------------------------------------------------------------------------
-   Name - unbloxodus()
+   Name - unblock_mail_ptr()
    Purpose - unblock one process blocked on a mailbox
    Parameters - int mailbox
    Returns - Nothing
    --------------------------------------------------------------------------*/
-void unbloxodus(int mailbox)
+void unblock_mail_ptr(int mailbox)
 {
    int pid;
      
@@ -463,7 +786,7 @@ void unbloxodus(int mailbox)
       unblock_proc(pid);
    }
    return;
-} /* unbloxodus */
+} /* unblock_mail_ptr */
 
 
 /* -------------------------------------------------------------------------
@@ -500,4 +823,254 @@ void insert_blocked_proc(int mailbox)
 } /* insert_blocked_proc */
 
 
+//assume when this is called mailboxID is validated
+//if we dont go this way of design then lets just validate everytime 
+//figure out how to deal with NULL value error, do we halt? 
+//do we return an integer indicating specific issue?
+void remove_mail_slots(int mailboxID){
 
+   slot_ptr *currSlot_ptr = MailBoxTable[mailboxID]->slot_ptr;
+
+   if(currSlot_ptr == NULL){
+      if(DEBUG2&&debugflag2){
+         console("\n\tremove_mail_slots(): currSlot_ptr is NULL.\n");
+         halt(1);
+      }
+   }else{
+      slot_ptr *nextSlot;
+      while(currSlot_ptr != NULL){
+         nextSlot = currSlot_ptr->next_slot_ptr;
+         free(currSlot_ptr);
+         currSlot_ptr = nextSlot;
+      }
+
+   currSlot_ptr = NULL;
+
+   }
+}
+
+
+void remove_mail_boxs(int mailboxID){
+
+   mbox_proc_ptr *currMbox_ptr = MailBoxTable[mailboxID]->proc_ptr;
+
+   if(currMbox_ptr == NULL){
+      if(DEBUG2&&debugflag2){
+         console("\n\tremove_mail_slots(): currSlot_ptr is NULL.\n");
+         halt(1);
+      }
+   }else{
+      mbox_proc_ptr *nextSlot;
+      while(currMbox_ptr != NULL){
+         nextSlot = currMbox_ptr->next_slot_ptr;
+         free(currMbox_ptr);
+         currMbox_ptr = nextSlot;
+      }
+
+   currMbox_ptr = NULL;
+
+   }
+}
+
+
+/* -------------------------------------------------------------------------
+   Name - insert_mail_slot()
+   Purpose - maintain the linked list of mailslots in the mbox and mailslot
+             structs
+   Parameters - int mailbox, int mailslot
+   Returns - Nothing
+   --------------------------------------------------------------------------*/
+void insert_mail_slot(int mailbox, int mailslot)
+{
+   slot_ptr walker;
+   slot_ptr previous;
+   walker = MailBoxTable[mailbox].slot_ptr;
+   if (walker == NULL)
+   {
+      MailBoxTable[mailbox].slot_ptr = &MailSlotTable[mailslot];
+   }
+   else
+   {
+      while (walker != NULL)
+      {
+         previous = walker;
+         walker = walker->next_slot_ptr;
+      }
+      previous->next_slot_ptr = &MailSlotTable[mailslot];
+   }
+   return;
+} /* insert_mail_slot */
+
+
+/* -------------------------------------------------------------------------
+   Name - disk_handler()
+   Purpose - Code to handle Disk innterupts.
+   Parameters - int device type, pointer to which unit  
+   --------------------------------------------------------------------------*/
+void disk_handler(int dev, void *punit)
+{
+   if (dev != DISK_DEV)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("disk_handler(): wrong device. return.\n");
+      }
+      return;   
+   }
+
+   int status;
+   int result;
+   int unit = (int)punit;
+   int table_offset = 1;
+
+   if (unit < 0 && unit > 1)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("disk_handler(): unit is out of range. return.\n");
+      }
+      return;   
+   }
+   
+   /*check the mailbox set-up for the disk unit. If not OK, return */
+   device_input(DISK_DEV, unit, &status);
+   result = MboxCondSend((unit+table_offset), &status, sizeof(status));
+
+   //more checking on the return result
+   return;
+} /* disk_handler */
+
+
+/* -------------------------------------------------------------------------
+   Name - syscall_handler()
+   --------------------------------------------------------------------------*/
+void syscall_handler(int dev, void *unit)
+{
+   sysargs *sys_ptr;
+
+   sys_ptr = (sysargs *) unit;
+   // Sanity check: if the interrupt is not SYSCALL_INT, halt(1)
+   if (dev != SYSCALL_INT)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("syscall_handler(): Interrupt is not SYSCALL_INT. halt(1).\n");
+      }
+      halt(1);
+   }
+   /* check what system: if the call is not in the range between 0 and MAXSYSCALLS, , halt(1) */ 
+   if (sys_ptr->number < 1 || sys_ptr->number >= MAXSYSCALLS)
+   {
+      console ("syscall_handler(): sys_ptr->number not in range.  halt(1).\n");
+      halt(1);
+   }
+   
+	/* Now it is time to call the appropriate system call handler */ 
+	sys_vec[sys_ptr->number](sys_ptr);
+
+   return;
+} /* syscall_handler */
+
+
+/* -------------------------------------------------------------------------
+   Name - terminal_handler()
+   Purpose - Code to handle terminal interupts.
+   Parameters - int device type, pointer to which unit 
+   --------------------------------------------------------------------------*/
+void terminal_handler(int dev, void *punit)
+{
+   if (dev != TERM_DEV)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("terminal_handler(): wrong device. return.\n");
+      }
+      return;   
+   }
+
+   int status;
+   int result;
+   int unit = (int)punit;
+   int table_offset = 3;
+
+   if (unit < 0 && unit > 3)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("terminal_handler(): unit is out of range. return.\n");
+      }
+      return;   
+   }
+   
+   /*check the mailbox set-up for the disk unit. If not OK, return */
+   device_input(TERM_DEV, unit, &status);
+   result = MboxCondSend((unit+table_offset), &status, sizeof(status));
+
+   //more checking on the return result
+   return;
+} /* terminal_handler*/
+
+
+/* -------------------------------------------------------------------------
+   Name - clock_handler2()
+   Purpose - Code to handle clock innterupts.
+   Parameters - int device type, pointer to which unit 
+   Returns - 
+   --------------------------------------------------------------------------*/
+void clock_handler2(int dev, void *punit)
+{
+   if (dev != CLOCK_DEV)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("clock_handler2(): wrong device. return.\n");
+      }
+      return;   
+   }
+
+   if (DEBUG2 && debugflag2)
+   {
+      console ("clock_handler2(): confirmed entry. target acquired.\n");
+   }
+
+   //clock_ticker is static so it keeps accumulating every call of clock_handler2 while program is being ran.
+   static int clock_ticker = 0;   
+   int dummy_value = 0; //for dummy message to send to anybody receiving on the clock mailbox
+
+   //add a 20ms tick to clock_ticker
+   clock_ticker = clock_ticker + CLOCK_MS;
+
+   //check if 5 interrupts have happened
+   if (clock_ticker % 100 == 0)
+   {
+      if (DEBUG2 && debugflag2)
+      {
+         console ("clock_handler2(): sending message.\n");
+      }
+
+      //Five interrupts have occured for a total of 100ms do a MboxCondSend to clock mailbox
+      if (DEBUG2 && debugflag2)
+      {
+         console("clock_handler(): dummy_value %p\n", &dummy_value);
+      }
+      MboxCondSend(CLOCK_DEV, &dummy_value, sizeof(int)); //REVIEW THIS
+      
+
+      //Call timeslice to kick out current process if need be.
+      time_slice();
+   }
+
+   return;
+} /* clock_handler2*/
+
+
+/* -------------------------------------------------------------------------
+   Name - nullsys()
+   Purpose - prints an error message
+   Parameters - sysargs
+   --------------------------------------------------------------------------*/
+static void nullsys(sysargs *args)
+{ 
+	printf("nullsys(): Invalid syscall %d. Halting...\n", args->number); 
+	halt(1);
+} /* nullsys */
