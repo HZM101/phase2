@@ -3,7 +3,7 @@
 
    University of Arizona South
    Computer Science 452
-   
+
    @authors: Erik Ibarra Hurtado, Hassan Martinez, Victor Alvarez
 
    ------------------------------------------------------------------------ */
@@ -28,7 +28,9 @@ void remove_mail_slots(int);
 void unblock_mail_ptr(int);
 static void nullsys(sysargs *);
 void insert_blocked_proc(int);
-
+void remove_blocked_proc(int);
+static void enableInterrupts(void);
+   
 /* -------------------------- Globals ------------------------------------- */
 
 int debugflag2 = 0;
@@ -36,7 +38,16 @@ int debugflag2 = 0;
 /* the mail boxes */
 mail_box MailBoxTable[MAXMBOX];
 mail_slot MailSlotTable[MAXSLOTS];
-mail_proc MBoxProcs[MAXPROC];
+mbox_proc MboxProcs[MAXPROC]; 
+
+/* Empty mailbox to set initialization */                
+mail_box empty_mbox = {0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+
+/* Empty mailslot to set initialization */                
+mail_slot empty_slot = {0, NULL, NULL, NULL, NULL, NULL};
+
+/* Empty proc to set initialization */                   
+mbox_proc empty_proc = {NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
 /* Global Mail Box ID tracker */
 int global_mbox_id;
@@ -59,10 +70,12 @@ void(*sys_vec[MAXSYSCALLS])(sysargs * args);
    ----------------------------------------------------------------------- */
 int start1(char *arg)
 {
+   int kid_pid, status;
+
    if (DEBUG2 && debugflag2)
       console("start1(): at beginning\n");
 
-   check_kernel_mode("start1");
+   check_kernel_mode();
 
    /* Disable interrupts */
    disableInterrupts();
@@ -89,7 +102,7 @@ int start1(char *arg)
    /* Proc */
    for(int i = 0; i < MAXPROC)
    {
-      MBoxProcs[i] = empty_proc;
+      MboxProcs[i] = empty_proc;
    }
 
    /* I/O */
@@ -192,7 +205,7 @@ int MboxCreate(int slots, int slot_size)
 
    /* Return mailbox ID "global_mbox_id++" */
    MailBoxTable[i].mbox_id = global_mbox_id++;
-   return MailBoxTable[i].mbox.id;
+   return MailBoxTable[i].mbox_id;
 
 } /* MboxCreate */
 
@@ -274,11 +287,11 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
       if(MailBoxTable[i].proc_ptr == NULL)
       {
          /* Initialize the mbox_proc values */
-         MBoxProcs[getpid() % MAXPROC].pid = getpid();
-         MBoxProcs[getpid() % MAXPROC].blocked = BLOCKED;
-         MBoxProcs[getpid() % MAXPROC].blocked_how = MBOXZEROSENDING;
-         MBoxProcs[getpid() % MAXPROC].message_size = msg_size;
-         memcpy(&MBoxProcs[getpid() % MAXPROC].message, msg_ptr, msg_size);
+         MboxProcs[getpid() % MAXPROC].pid = getpid();
+         MboxProcs[getpid() % MAXPROC].blocked = BLOCKED;
+         MboxProcs[getpid() % MAXPROC].blocked_how = MBOXZEROSENDING;
+         MboxProcs[getpid() % MAXPROC].message_size = msg_size;
+         memcpy(&MboxProcs[getpid() % MAXPROC].message, msg_ptr, msg_size);
          MailBoxTable[i].num_blocked_procs++;
          insert_blocked_proc(i);
 
@@ -286,7 +299,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
          if( block_me(MBOXZEROSENDING) == -1 || MailBoxTable[i].status == RELEASED)
          {
             /* Testing for last process blocked if so unblock the releaser.*/
-            if(MBoxProcs[getpid() % MAXPROC].last_status == LASTPROC)
+            if(MboxProcs[getpid() % MAXPROC].last_status == LASTPROC)
             {
                /* Unblocking */
                unblock_proc(MailBoxTable[i].releaser_pid);
@@ -324,9 +337,9 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
       else /* Mailbox is a sender, block process on the mailbox. */
       {
          /* Initialize the mbox_proc values */
-         MBoxProcs[getpid() % MAXPROC].pid = getpid();
-         MBoxProcs[getpid() % MAXPROC].blocked = BLOCKED;
-         MBoxProcs[getpid() % MAXPROC].blocked_how = MBOXZEROSENDING;
+         MboxProcs[getpid() % MAXPROC].pid = getpid();
+         MboxProcs[getpid() % MAXPROC].blocked = BLOCKED;
+         MboxProcs[getpid() % MAXPROC].blocked_how = MBOXZEROSENDING;
          MailBoxTable[i].num_blocked_procs++;
          insert_blocked_proc(i);
 
@@ -334,7 +347,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
          if( block_me(MBOXZEROSENDING) == -1 || MailBoxTable[i].status == RELEASED)
          {
             /* Testing for last process blocked if so unblock the releaser.*/
-            if(MBoxProcs[getpid() % MAXPROC].last_status == LASTPROC)
+            if(MboxProcs[getpid() % MAXPROC].last_status == LASTPROC)
             {
                /* Unblocking */
                unblock_proc(MailBoxTable[i].releaser_pid);
@@ -349,9 +362,9 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
    if(MailBoxTable[i].num_used_slots >= MailBoxTable[i].num_slots && MailBoxTable[i].num_slots > 0) 
    {
          /* Initialize the mbox_proc values */
-         MBoxProcs[getpid() % MAXPROC].pid = getpid();
-         MBoxProcs[getpid() % MAXPROC].blocked = BLOCKED;
-         MBoxProcs[getpid() % MAXPROC].blocked_how = MBOXFULL;
+         MboxProcs[getpid() % MAXPROC].pid = getpid();
+         MboxProcs[getpid() % MAXPROC].blocked = BLOCKED;
+         MboxProcs[getpid() % MAXPROC].blocked_how = MBOXFULL;
          MailBoxTable[i].num_blocked_procs++;
          insert_blocked_proc(i);
 
@@ -359,7 +372,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
          if( block_me(MBOXFULL) == -1 || MailBoxTable[i].status == RELEASED)
          {
             /* Testing for last process blocked if so unblock the releaser.*/
-            if(MBoxProcs[getpid() % MAXPROC].last_status == LASTPROC)
+            if(MboxProcs[getpid() % MAXPROC].last_status == LASTPROC)
             {
                /* Unblocking */
                unblock_proc(MailBoxTable[i].releaser_pid);
@@ -726,44 +739,42 @@ int MboxCondReceive(int mailboxID, void *message, int max_message_size)
    ----------------------------------------------------------------------- */
 int MboxRelease(int mailboxID)
 {
-   int currBoxAmnt = currNumBoxes;
-   int receivedMboxID = mailboxID;
-   char* func_name = "MboxRelease()";
-   mail_box *currBox;
+     int i = 0;
 
-   disableInterrupts();
-   checkCurrentMode(func_name);//make sure its in kernel mode
-
-   //check if caller was zapped
-   if(is_zapped()){
-      if(DEBUG2&&debugflag2)
-         console("%s: caller was already zapped", func_name);
-      return -3;
-   }
-
-   //check mailboxID validity
-   if(receivedMboxID < 0 || receivedMboxID >= MAXMBOX){
-      if(debugflag2 && DEBUG2){
-         console("\n\t%s: has invalid mailboxID: %d\n", func_name, receivedMboxID);
-         return -1;
-      }
-   }else{
-      currBox = &MailBoxTable[receivedMboxID];//if not invalid then retrieve the mailbox
-   }
-   
-   //check if currBox has not already been released or is active
-   if(currBox == NULL || currBox->status == INACTIVE){
-      if(DEBUG2 && debugflag2){
-         console("\n\t%s: mailboxID = %d was already free.\n", func_name, receivedMboxID);
+   //mark mailbox as being released
+   //return -1 mailbox id is not a mailbox in use
+   while ( MailBoxTable[i].mbox_id != mailboxID)
+   {
+      i++;
+      if ( i >= MAXMBOX)
+      {
          return -1;
       }
    }
+   MailBoxTable[i].status = RELEASED;
+   MailBoxTable[i].releaser_pid = getpid();
+   MailBoxTable[i].is_free = 0;
+   MailBoxTable[i].mbox_id = NULL;
 
-   //remove mailbox slots
-   remove_mail_slots(receivedMboxID);
-   remove_mail_box(receivedMboxID);
+   //reclaim the mailslots from the mailslot table
+   if (MailBoxTable[i].num_used_slots > 0)
+   {
+      while (MailBoxTable[i].num_used_slots > 0)
+      {
+         //release mailslots
+         remove_mail_slot(i);
+      }
+   }
 
-   enableInterrupts();
+   //check for blocked procs and unblock them
+   //block the releaser so that unblocked procs have a chance to finish
+   if (MailBoxTable[i].num_blocked_procs > 0)
+   {       
+      mass_unbloxodus(i);
+      block_me(MBOXRELEASING);
+   }
+
+   //return 0 if successful
    return 0;
 } /* MboxRelease */
 
@@ -1074,3 +1085,91 @@ static void nullsys(sysargs *args)
 	printf("nullsys(): Invalid syscall %d. Halting...\n", args->number); 
 	halt(1);
 } /* nullsys */
+
+
+/* -------------------------------------------------------------------------
+   Name - remove_blocked_proc()
+   Purpose - remove proc from the linked list of blocked processes on a mailbox
+             updates the data fields of the mbox proc
+   Parameters - int mailbox
+   Returns - Nothing
+   --------------------------------------------------------------------------*/
+void remove_blocked_proc(int mailbox)
+{
+   if (MailBoxTable[mailbox].proc_ptr->next_proc_ptr == NULL)
+   {
+      MailBoxTable[mailbox].proc_ptr = NULL;
+   }
+   else
+   {
+      MailBoxTable[mailbox].proc_ptr = MailBoxTable[mailbox].proc_ptr->next_proc_ptr;
+      MboxProcs[getpid()%MAXPROC].next_proc_ptr = NULL;
+   }
+
+   MboxProcs[getpid()%MAXPROC].blocked = UNBLOCKED;
+   MboxProcs[getpid()%MAXPROC].blocked_how = UNBLOCKED;
+   
+
+   return;
+} /* remove_blocked_proc */
+
+
+/* --------------------------------------------------------------------------------
+   Name - enableInterrupts()
+   Purpose - Enables the interrupts.
+   Parameters - None
+   Returns - Nothing
+   ---------------------------------------------------------------------------------*/
+static void enableInterrupts()
+{
+   psr_set((psr_get() | PSR_CURRENT_INT));
+}  /*enableInterrupts*/
+
+
+/* -------------------------------------------------------------------------
+   Name - disableInterrupts()
+   Purpose - Disables the interrupts.
+   Parameters - None
+   Returns - Nothing
+   --------------------------------------------------------------------------*/
+void disableInterrupts()
+{
+  /* turn the interrupts OFF iff we are in kernel mode */
+  if((PSR_CURRENT_MODE & psr_get()) == 0) {
+    //not in kernel mode
+    console("Kernel Error: Not in kernel mode, may not disable interrupts\n");
+    halt(1);
+  } else
+    /* We ARE in kernel mode */
+    psr_set( psr_get() & ~PSR_CURRENT_INT );
+} /* disableInterrupts */
+
+
+/* -------------------------------------------------------------------------
+   Name - check_io()
+   Purpose - Checks for input/output.
+   Parameters - None
+   Returns - An integer.  Returns 0 for now, as a dummy function.
+   --------------------------------------------------------------------------*/
+int check_io()
+{
+   mbox_proc_ptr walker;
+   int flag = 0;
+   int i = 0;
+
+   while (i < 7)
+   {
+      walker = MailBoxTable[i].proc_ptr;
+      if (walker != NULL)
+      {
+         flag++;
+      }
+      i++;
+   }
+
+   if (flag > 0)
+   {
+      return 1;
+   }
+   else return 0;
+} /* check_io */

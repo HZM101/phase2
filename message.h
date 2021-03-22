@@ -15,7 +15,7 @@ typedef struct mail_slot *slot_ptr;
 typedef struct mailbox mail_box;
 typedef struct mbox_proc *mbox_proc_ptr;
 typedef struct mail_slot mail_slot;
-typedef struct mbox_proc mail_proc;
+typedef struct mbox_proc mbox_proc;
 
 struct mailbox {
    int            is_free;
