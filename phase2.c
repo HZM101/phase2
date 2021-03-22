@@ -96,13 +96,13 @@ int start1(char *arg)
    }
 
    /* Mail slot table */
-   for(int i = 0; i < MAXSLOTS)
+   for(int i = 0; i < MAXSLOTS; i++)
    {
       MailSlotTable[i] = empty_slot;
    }
 
    /* Proc */
-   for(int i = 0; i < MAXPROC)
+   for(int i = 0; i < MAXPROC; i++)
    {
       MboxProcs[i] = empty_proc;
    }
@@ -394,7 +394,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
       {
          if(DEBUG2 && debugflag2)
          {
-            console("MboxSend(): Error. Overflow of MailSlotTable.\n")
+            console("MboxSend(): Error. Overflow of MailSlotTable.\n");
          }
          halt(1);
       }
@@ -456,7 +456,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 
       insert_blocked_proc(i);
       /* if process was zapped while blocked or status is RELEASED then return -3. */
-      if (block_me(MBOXEMPTY) == -1 || (MailBoxTable[i].status == RELEASED)
+      if (block_me(MBOXEMPTY) == -1 || (MailBoxTable[i].status == RELEASED))
       {
          return -3;
       }
@@ -691,15 +691,11 @@ int MboxCondReceive(int mailboxID, void *message, int max_message_size)
    /* Checking for any slots in the table. */
    if(MailBoxTable[i].num_used_slots == 0)
    {
-      if(DEBUG2 && debugflag2)
-      {
-         console("MboxCondReceive")
-      }
       return -2;
    }
 
    /* Saving message size of mailbox table. */
-   message_size = MailBoxTable[i].slot_ptr->message_size
+   message_size = MailBoxTable[i].slot_ptr->message_size;
 
    /* Check status again. */
    if(MailBoxTable[i].status == RELEASED)
