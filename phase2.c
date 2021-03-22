@@ -24,12 +24,14 @@ void disk_handler(int, void *);
 void clock_handler2(int, void *);
 void terminal_handler(int, void *);
 void syscall_handler(int, void *);
-void remove_mail_slots(int);
+void remove_mail_slot(int);
 void unblock_mail_ptr(int);
 static void nullsys(sysargs *);
 void insert_blocked_proc(int);
 void remove_blocked_proc(int);
 static void enableInterrupts(void);
+void disableInterrupts(void);          
+
    
 /* -------------------------- Globals ------------------------------------- */
 
@@ -223,7 +225,8 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
    disableInterrupts();
    check_kernel_mode();
 
-   int i, j = 0;
+   int i = 0;
+   int j = 0;
 
    /* If debug is on. */
    if(DEBUG2 && debugflag2)
@@ -529,7 +532,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 
    message_size = MailBoxTable[i].slot_ptr->message_size;
    memcpy(msg_ptr, &MailBoxTable[i].slot_ptr->message, message_size);
-   remove_mail_slots(i);
+   remove_mail_slot(i);
    unblock_mail_ptr(i);
    
    return message_size;
@@ -712,7 +715,7 @@ int MboxCondReceive(int mailboxID, void *message, int max_message_size)
    memcpy(message, &MailBoxTable[i].slot_ptr->message, message_size);
 
    /* Release mailbox slot & unblock sender. */
-   remove_mail_slots(i);
+   remove_mail_slot(i);
    unblock_mail_ptr(i);
 
    /* Test zap status if zap then return -3. */
@@ -834,54 +837,35 @@ void insert_blocked_proc(int mailbox)
 } /* insert_blocked_proc */
 
 
-//assume when this is called mailboxID is validated
-//if we dont go this way of design then lets just validate everytime 
-//figure out how to deal with NULL value error, do we halt? 
-//do we return an integer indicating specific issue?
-void remove_mail_slots(int mailboxID){
-
-   slot_ptr *currSlot_ptr = MailBoxTable[mailboxID]->slot_ptr;
-
-   if(currSlot_ptr == NULL){
-      if(DEBUG2&&debugflag2){
-         console("\n\tremove_mail_slots(): currSlot_ptr is NULL.\n");
-         halt(1);
-      }
-   }else{
-      slot_ptr *nextSlot;
-      while(currSlot_ptr != NULL){
-         nextSlot = currSlot_ptr->next_slot_ptr;
-         free(currSlot_ptr);
-         currSlot_ptr = nextSlot;
-      }
-
-   currSlot_ptr = NULL;
-
+/* -------------------------------------------------------------------------
+   Name - remove_mail_slot()
+   Purpose - maintain the linked list of mailslots in the mbox and mailslot
+             structs, release mailbox slots from mailslottable
+   Parameters - int mbox_index
+   Returns - Nothing
+   --------------------------------------------------------------------------*/
+void remove_mail_slot(int mbox_index)
+{
+   int j = 0;
+   while (&MailSlotTable[j] != MailBoxTable[mbox_index].slot_ptr)
+   {
+      j++;
    }
-}
-
-
-void remove_mail_boxs(int mailboxID){
-
-   mbox_proc_ptr *currMbox_ptr = MailBoxTable[mailboxID]->proc_ptr;
-
-   if(currMbox_ptr == NULL){
-      if(DEBUG2&&debugflag2){
-         console("\n\tremove_mail_slots(): currSlot_ptr is NULL.\n");
-         halt(1);
-      }
-   }else{
-      mbox_proc_ptr *nextSlot;
-      while(currMbox_ptr != NULL){
-         nextSlot = currMbox_ptr->next_slot_ptr;
-         free(currMbox_ptr);
-         currMbox_ptr = nextSlot;
-      }
-
-   currMbox_ptr = NULL;
-
+   if (MailBoxTable[mbox_index].slot_ptr->next_slot_ptr == NULL)
+   {
+      MailBoxTable[mbox_index].slot_ptr = NULL;
    }
-}
+   else
+   {
+      MailBoxTable[mbox_index].slot_ptr = MailBoxTable[mbox_index].slot_ptr->next_slot_ptr;
+   }
+   MailSlotTable[j] = empty_slot;
+
+   //decrement used_slots on mailbox
+   MailBoxTable[mbox_index].num_used_slots--;
+
+   return;
+} /* remove_mail_slot */
 
 
 /* -------------------------------------------------------------------------
@@ -1132,7 +1116,7 @@ static void enableInterrupts()
    Parameters - None
    Returns - Nothing
    --------------------------------------------------------------------------*/
-void disableInterrupts()
+void disableInterrupts()        
 {
   /* turn the interrupts OFF iff we are in kernel mode */
   if((PSR_CURRENT_MODE & psr_get()) == 0) {
