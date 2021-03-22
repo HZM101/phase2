@@ -31,7 +31,8 @@ void insert_blocked_proc(int);
 void remove_blocked_proc(int);
 static void enableInterrupts(void);
 void disableInterrupts(void);  
-void insert_mail_slot(int, int);        
+void insert_mail_slot(int, int);  
+void check_kernel_mode(void);      
    
 /* -------------------------- Globals ------------------------------------- */
 
@@ -769,7 +770,6 @@ int MboxRelease(int mailboxID)
    //block the releaser so that unblocked procs have a chance to finish
    if (MailBoxTable[i].num_blocked_procs > 0)
    {       
-      mass_unbloxodus(i);
       block_me(MBOXRELEASING);
    }
 
@@ -1123,6 +1123,27 @@ void disableInterrupts()
     /* We ARE in kernel mode */
     psr_set( psr_get() & ~PSR_CURRENT_INT );
 } /* disableInterrupts */
+
+
+/* -------------------------------------------------------------------------
+   Name - check_kernel_mode()
+   Purpose - Checks the PSR to see what the current mode is. Halts(1) if
+             the current mode is user mode. Returns otherwise.
+   Parameters - None
+   Returns - Nothing
+   --------------------------------------------------------------------------*/
+void check_kernel_mode()
+{
+   // test if in kernel mode; halt if in user mode
+   if ((PSR_CURRENT_MODE & psr_get()) == 0)
+   {
+      console("check_kernel_mode(): Error - current mode is user mode. Halt(1)\n");
+      halt(1);
+   }
+
+   // return if in kernel mode
+   return;
+} /* check_kernel_mode */
 
 
 /* -------------------------------------------------------------------------
