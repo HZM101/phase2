@@ -14,30 +14,30 @@
 typedef struct mail_slot *slot_ptr;
 typedef struct mailbox mail_box;
 typedef struct mbox_proc *mbox_proc_ptr;
-typedef struct mail_slot mail_slot;
+typedef struct mail_slot mail_slot;       
 typedef struct mbox_proc mbox_proc;
 
 struct mailbox {
-   int            is_free;
+   int            is_free;             
    int            mbox_id;
-   int            status;
-   int            num_slots;
-   int            max_slot_size;
-   mbox_proc_ptr  proc_ptr;
-   slot_ptr       slot_ptr;
-   int            num_used_slots;
-   int            num_blocked_procs;
-   int            releaser_pid;
+   int            status;              
+   int            num_slots;           
+   int            max_slot_size;       
+   mbox_proc_ptr  proc_ptr;            
+   slot_ptr       slot_ptr;            
+   int            num_used_slots;      
+   int            num_blocked_procs;   
+   int            releaser_pid;      
    /* other items as needed... */
 };
 
 struct mail_slot {
-   int            is_free;
-   int            mbox_id;
-   int            status;
-   int            message_size;
-   slot_ptr       next_slot_ptr;
-   char           message[MAX_MESSAGE];
+   int       is_free;                  
+   int       mbox_id;
+   int       status;
+   int       message_size;
+   slot_ptr  next_slot_ptr;            
+   char      message [MAX_MESSAGE];   
    /* other items as needed... */
 };
 
@@ -54,13 +54,13 @@ union psr_values {
    unsigned int integer_part;
 };
 
-struct mail_proc
-{
-   int               pid;
-   int               blocked_how;
-   int               blocked;
-   mbox_proc_ptr     next_proc_ptr;
-   int               message_size;
-   char              message[MAX_MESSAGE];
-   int               last_status;
-}
+struct mbox_proc {                           
+   int            pid;
+   int            blocked_how;               
+   int            blocked;                   
+   mbox_proc_ptr  next_proc_ptr;             
+   int            message_size;
+   char           message [MAX_MESSAGE];
+   int            last_status;
+   /* other items as needed */
+};

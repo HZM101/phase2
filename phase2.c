@@ -30,8 +30,8 @@ static void nullsys(sysargs *);
 void insert_blocked_proc(int);
 void remove_blocked_proc(int);
 static void enableInterrupts(void);
-void disableInterrupts(void);          
-
+void disableInterrupts(void);  
+void insert_mail_slot(int, int);        
    
 /* -------------------------- Globals ------------------------------------- */
 
@@ -39,8 +39,8 @@ int debugflag2 = 0;
 
 /* the mail boxes */
 mail_box MailBoxTable[MAXMBOX];
-mail_slot MailSlotTable[MAXSLOTS];
-mbox_proc MboxProcs[MAXPROC]; 
+mail_slot MailSlotTable[MAXSLOTS];                        
+mbox_proc MboxProcs[MAXPROC];  
 
 /* Empty mailbox to set initialization */                
 mail_box empty_mbox = {0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
